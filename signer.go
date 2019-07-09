@@ -8,9 +8,10 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
-	"runtime"
 	"sort"
 	"time"
+
+	"gitlab.com/NebulousLabs/fastrand"
 )
 
 func hashSorted(lst []string) []byte {
@@ -44,9 +45,15 @@ func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err er
 	if err != nil {
 		panic(err)
 	}
-	hash := hashSorted(append(hosts, goproxySignerVersion, ":"+runtime.Version()))
+	// hash := hashSorted(append(hosts, goproxySignerVersion, ":"+runtime.Version()))
+	// serial := new(big.Int)
+	// serial.SetBytes(hash)
+
+	hash := make([]byte, 20)
+	fastrand.Read(hash)
 	serial := new(big.Int)
 	serial.SetBytes(hash)
+
 	template := x509.Certificate{
 		// TODO(elazar): instead of this ugly hack, just encode the certificate and hash the binary form.
 		SerialNumber: serial,
