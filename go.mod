@@ -1,1 +1,1 @@
-module github.com/elazarl/goproxy
+module github.com/uniwrighte/goproxy
