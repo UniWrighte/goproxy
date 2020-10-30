@@ -2,6 +2,7 @@ package goproxy
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 )
@@ -15,6 +16,7 @@ import (
 //			`<!doctype html><html><head><title>Can't use proxy for local addresses</title></head><body/></html>`)
 //	})
 func NewResponse(r *http.Request, contentType string, status int, body string) *http.Response {
+	fmt.Println("DJK - TEST")
 	resp := &http.Response{}
 	resp.Request = r
 	resp.TransferEncoding = r.TransferEncoding
