@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -250,6 +251,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 				}
 				chunked := newChunkedWriter(rawClientTls)
 				if _, err := io.Copy(chunked, resp.Body); err != nil {
+					fmt.Println("DJK HERE: ", err)
 					ctx.Warnf("Cannot write TLS response body from mitm'd client: %v", err)
 					return
 				}
