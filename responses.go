@@ -16,7 +16,7 @@ import (
 //			`<!doctype html><html><head><title>Can't use proxy for local addresses</title></head><body/></html>`)
 //	})
 func NewResponse(r *http.Request, contentType string, status int, body string) *http.Response {
-	fmt.Println("DJK - TEST")
+	fmt.Println("DJK - TEST - DEBUG")
 	resp := &http.Response{}
 	resp.Request = r
 	resp.TransferEncoding = r.TransferEncoding
