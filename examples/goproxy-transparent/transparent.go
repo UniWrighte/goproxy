@@ -99,8 +99,9 @@ func main() {
 					Opaque: tlsConn.Host(),
 					Host:   net.JoinHostPort(tlsConn.Host(), "443"),
 				},
-				Host:   tlsConn.Host(),
-				Header: make(http.Header),
+				Host:       tlsConn.Host(),
+				Header:     make(http.Header),
+				RemoteAddr: c.RemoteAddr().String(),
 			}
 			resp := dumbResponseWriter{tlsConn}
 			proxy.ServeHTTP(resp, connectReq)

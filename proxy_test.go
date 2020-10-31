@@ -3,6 +3,7 @@ package goproxy_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -16,8 +17,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/uniwrighte/goproxy"
 	goproxy_image "github.com/uniwrighte/goproxy/ext/image"
@@ -505,8 +508,7 @@ func constantHttpServer(content []byte) (addr string) {
 
 func TestIcyResponse(t *testing.T) {
 	// TODO: fix this test
-	return // skip for now
-	s := constantHttpServer([]byte("ICY 200 OK\r\n\r\nblablabla"))
+	/*s := constantHttpServer([]byte("ICY 200 OK\r\n\r\nblablabla"))
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Verbose = true
 	_, l := oneShotProxy(proxy, t)
@@ -523,7 +525,7 @@ func TestIcyResponse(t *testing.T) {
 	panicOnErr(err, "readAll")
 	if string(raw) != "ICY 200 OK\r\n\r\nblablabla" {
 		t.Error("Proxy did not send the malformed response received")
-	}
+	}*/
 }
 
 type VerifyNoProxyHeaders struct {
@@ -681,7 +683,6 @@ func TestGoproxyHijackConnect(t *testing.T) {
 	panicOnErr(err, "conn "+proxyAddr)
 	buf := bufio.NewReader(conn)
 	writeConnect(conn)
-	readConnectResponse(buf)
 	if txt := readResponse(buf); txt != "bobo" {
 		t.Error("Expected bobo for CONNECT /foo, got", txt)
 	}
@@ -703,17 +704,17 @@ func readResponse(buf *bufio.Reader) string {
 }
 
 func writeConnect(w io.Writer) {
-	req, err := http.NewRequest("CONNECT", srv.URL[len("http://"):], nil)
+	// this will let us use IP address of server as url in http.NewRequest by
+	// passing it as //127.0.0.1:64584 (prefixed with //).
+	// Passing IP address with port alone (without //) will raise error:
+	// "first path segment in URL cannot contain colon" more details on this
+	// here: https://github.com/golang/go/issues/18824
+	validSrvURL := srv.URL[len("http:"):]
+
+	req, err := http.NewRequest("CONNECT", validSrvURL, nil)
 	panicOnErr(err, "NewRequest")
 	req.Write(w)
 	panicOnErr(err, "req(CONNECT).Write")
-}
-
-func readConnectResponse(buf *bufio.Reader) {
-	_, err := buf.ReadString('\n')
-	panicOnErr(err, "resp.Read connect resp")
-	_, err = buf.ReadString('\n')
-	panicOnErr(err, "resp.Read connect resp")
 }
 
 func TestCurlMinusP(t *testing.T) {
@@ -917,5 +918,92 @@ func TestHttpsMitmURLRewrite(t *testing.T) {
 		if resp.StatusCode != http.StatusAccepted {
 			t.Errorf("Expected status: %d, got: %d", http.StatusAccepted, resp.StatusCode)
 		}
+	}
+}
+
+func returnNil(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+	return nil
+}
+
+func TestSimpleHttpRequest(t *testing.T) {
+	proxy := goproxy.NewProxyHttpServer()
+
+	var server *http.Server
+	go func() {
+		fmt.Println("serving end proxy server at localhost:5000")
+		server = &http.Server{
+			Addr:    "localhost:5000",
+			Handler: proxy,
+		}
+		err := server.ListenAndServe()
+		if err == nil {
+			t.Error("Error shutdown should always return error", err)
+		}
+	}()
+
+	time.Sleep(1 * time.Second)
+	u, _ := url.Parse("http://localhost:5000")
+	tr := &http.Transport{
+		Proxy: http.ProxyURL(u),
+		// Disable HTTP/2.
+		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+	}
+	client := http.Client{Transport: tr}
+
+	resp, err := client.Get("http://google.de")
+	if err != nil || resp.StatusCode != 200 {
+		t.Error("Error while requesting google with http", err)
+	}
+	resp, err = client.Get("http://google20012312031.de")
+	fmt.Println(resp)
+	if resp == nil {
+		t.Error("Error while requesting random string with http", resp)
+	}
+	proxy.OnResponse(goproxy.UrlMatches(regexp.MustCompile(".*"))).DoFunc(returnNil)
+
+	resp, err = client.Get("http://google20012312031.de")
+	fmt.Println(resp)
+	if resp == nil {
+		t.Error("Error while requesting random string with http", resp)
+	}
+
+	server.Shutdown(context.TODO())
+}
+
+func TestResponseContentLength(t *testing.T) {
+	// target server
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("hello world"))
+	}))
+	defer srv.Close()
+
+	// proxy server
+	proxy := goproxy.NewProxyHttpServer()
+	proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		buf := &bytes.Buffer{}
+		buf.Write([]byte("change"))
+		resp.Body = ioutil.NopCloser(buf)
+		return resp
+	})
+	proxySrv := httptest.NewServer(proxy)
+	defer proxySrv.Close()
+
+	// send request
+	http.DefaultClient.Transport = &http.Transport{
+		Proxy: func(req *http.Request) (*url.URL, error) {
+			return url.Parse(proxySrv.URL)
+		},
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	resp, _ := http.DefaultClient.Do(req)
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+
+	if int64(len(body)) != resp.ContentLength {
+		t.Logf("response body: %s", string(body))
+		t.Logf("response body Length: %d", len(body))
+		t.Logf("response Content-Length: %d", resp.ContentLength)
+		t.Fatalf("Wrong response Content-Length.")
 	}
 }

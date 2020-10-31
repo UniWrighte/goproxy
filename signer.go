@@ -1,12 +1,17 @@
 package goproxy
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
+	"math/rand"
 	"net"
 	"sort"
 	"time"
@@ -45,6 +50,7 @@ func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err er
 	if err != nil {
 		panic(err)
 	}
+<<<<<<< HEAD
 	// hash := hashSorted(append(hosts, goproxySignerVersion, ":"+runtime.Version()))
 	// serial := new(big.Int)
 	// serial.SetBytes(hash)
@@ -54,6 +60,10 @@ func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err er
 	serial := new(big.Int)
 	serial.SetBytes(hash)
 
+=======
+
+	serial := big.NewInt(rand.Int63())
+>>>>>>> upstream/master
 	template := x509.Certificate{
 		// TODO(elazar): instead of this ugly hack, just encode the certificate and hash the binary form.
 		SerialNumber: serial,
@@ -76,20 +86,38 @@ func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err er
 			template.Subject.CommonName = h
 		}
 	}
+
+	hash := hashSorted(append(hosts, goproxySignerVersion, ":"+runtime.Version()))
 	var csprng CounterEncryptorRand
 	if csprng, err = NewCounterEncryptorRandFromKey(ca.PrivateKey, hash); err != nil {
 		return
 	}
-	var certpriv *rsa.PrivateKey
-	if certpriv, err = rsa.GenerateKey(&csprng, 2048); err != nil {
-		return
+
+	var certpriv crypto.Signer
+	switch ca.PrivateKey.(type) {
+	case *rsa.PrivateKey:
+		if certpriv, err = rsa.GenerateKey(&csprng, 2048); err != nil {
+			return
+		}
+	case *ecdsa.PrivateKey:
+		if certpriv, err = ecdsa.GenerateKey(elliptic.P256(), &csprng); err != nil {
+			return
+		}
+	default:
+		err = fmt.Errorf("unsupported key type %T", ca.PrivateKey)
 	}
+
 	var derBytes []byte
-	if derBytes, err = x509.CreateCertificate(&csprng, &template, x509ca, &certpriv.PublicKey, ca.PrivateKey); err != nil {
+	if derBytes, err = x509.CreateCertificate(&csprng, &template, x509ca, certpriv.Public(), ca.PrivateKey); err != nil {
 		return
 	}
 	return &tls.Certificate{
 		Certificate: [][]byte{derBytes, ca.Certificate[0]},
 		PrivateKey:  certpriv,
 	}, nil
+}
+
+func init() {
+	// Avoid deterministic random numbers
+	rand.Seed(time.Now().UnixNano())
 }
