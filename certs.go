@@ -3,9 +3,11 @@ package goproxy
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 )
 
 func init() {
+	fmt.Println("DJK - TEST")
 	if goproxyCaErr != nil {
 		panic("Error parsing builtin CA " + goproxyCaErr.Error())
 	}
